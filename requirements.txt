@@ -1,1 +1,2 @@
 lovely-tensors
+scipy
