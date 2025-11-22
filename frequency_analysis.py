@@ -157,11 +157,18 @@ class LTFrequencyResponse:
                 # Forward pass
                 with torch.no_grad():
                     try:
-                        _ = model.model.diffusion_model.input_blocks[0](img_tensor)
-                    except:
-                        _ = model.model.diffusion_model(img_tensor,
-                                                       timesteps=torch.zeros(1, device=device),
-                                                       context=None)
+                        # First, validate that input_blocks exists and is accessible
+                        if hasattr(model.model.diffusion_model, 'input_blocks'):
+                            _ = model.model.diffusion_model.input_blocks[0](img_tensor)
+                        else:
+                            # Use full model forward pass as primary approach
+                            _ = model.model.diffusion_model(img_tensor,
+                                                           timesteps=torch.zeros(1, device=device),
+                                                           context=None)
+                    except (AttributeError, RuntimeError, TypeError) as e:
+                        # If both approaches fail, provide informative error
+                        raise ValueError(f"Failed to forward pass through model: {str(e)}. "
+                                       f"Model structure may be incompatible.")
 
                     # Get activation
                     if layer_name not in hook.activations:
@@ -310,11 +317,18 @@ class LTEdgeDetectorAnalysis:
                 # Forward pass
                 with torch.no_grad():
                     try:
-                        _ = model.model.diffusion_model.input_blocks[0](img_tensor)
-                    except:
-                        _ = model.model.diffusion_model(img_tensor,
-                                                       timesteps=torch.zeros(1, device=device),
-                                                       context=None)
+                        # First, validate that input_blocks exists and is accessible
+                        if hasattr(model.model.diffusion_model, 'input_blocks'):
+                            _ = model.model.diffusion_model.input_blocks[0](img_tensor)
+                        else:
+                            # Use full model forward pass as primary approach
+                            _ = model.model.diffusion_model(img_tensor,
+                                                           timesteps=torch.zeros(1, device=device),
+                                                           context=None)
+                    except (AttributeError, RuntimeError, TypeError) as e:
+                        # If both approaches fail, provide informative error
+                        raise ValueError(f"Failed to forward pass through model: {str(e)}. "
+                                       f"Model structure may be incompatible.")
 
                     activation = hook.activations[layer_name]
 

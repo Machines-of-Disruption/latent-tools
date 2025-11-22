@@ -90,16 +90,23 @@ class LTVisualizeWeights:
             fig, axes = plt.subplots(num_filters, in_c,
                                     figsize=(min(in_c * 2, 20), num_filters * 2))
 
-            if num_filters == 1:
+            # Handle edge cases for axes array shape
+            if num_filters == 1 and in_c == 1:
+                axes = np.array([[axes]])
+            elif num_filters == 1:
                 axes = axes.reshape(1, -1)
+            elif in_c == 1:
+                axes = axes.reshape(-1, 1)
 
             for i in range(min(num_filters, out_c)):
                 for j in range(in_c):
-                    ax = axes[i, j] if in_c > 1 else axes[i]
+                    ax = axes[i, j]
                     weight_slice = weights[i, j].numpy()
 
-                    # Normalize for visualization
+                    # Normalize for visualization, handle zero weights
                     vmax = np.abs(weight_slice).max()
+                    if vmax == 0:
+                        vmax = 1e-8  # Avoid division by zero, use small epsilon
                     ax.imshow(weight_slice, cmap='RdBu_r', vmin=-vmax, vmax=vmax)
                     ax.axis('off')
 
@@ -115,6 +122,8 @@ class LTVisualizeWeights:
             fig, ax = plt.subplots(figsize=(12, 8))
             weight_np = weights.numpy()
             vmax = np.abs(weight_np).max()
+            if vmax == 0:
+                vmax = 1e-8  # Avoid division by zero
             im = ax.imshow(weight_np, cmap='RdBu_r', vmin=-vmax, vmax=vmax, aspect='auto')
             ax.set_xlabel('Input Features')
             ax.set_ylabel('Output Features')
@@ -125,6 +134,8 @@ class LTVisualizeWeights:
             fig, ax = plt.subplots(figsize=(12, 8))
             weight_flat = weights.reshape(-1, weights.shape[-1]).numpy()
             vmax = np.abs(weight_flat).max()
+            if vmax == 0:
+                vmax = 1e-8  # Avoid division by zero
             im = ax.imshow(weight_flat, cmap='RdBu_r', vmin=-vmax, vmax=vmax, aspect='auto')
             plt.colorbar(im, ax=ax)
 
@@ -175,6 +186,8 @@ class LTVisualizeWeights:
                 # Show average across input channels
                 v_avg = v_i.mean(dim=0).numpy()
                 vmax = np.abs(v_avg).max()
+                if vmax == 0:
+                    vmax = 1e-8  # Avoid division by zero
                 im = ax2.imshow(v_avg, cmap='RdBu_r', vmin=-vmax, vmax=vmax)
                 ax2.set_title(f'Spatial Pattern (avg across {in_c} channels)')
                 ax2.axis('off')
@@ -194,6 +207,8 @@ class LTVisualizeWeights:
                         montage[r*h:(r+1)*h, c*w:(c+1)*w] = v_i[ch].numpy()
 
                     vmax = np.abs(montage).max()
+                    if vmax == 0:
+                        vmax = 1e-8  # Avoid division by zero
                     im = ax3.imshow(montage, cmap='RdBu_r', vmin=-vmax, vmax=vmax)
                     ax3.set_title(f'All {in_c} Input Channels')
                     ax3.axis('off')

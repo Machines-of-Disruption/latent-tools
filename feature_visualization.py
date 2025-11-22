@@ -211,8 +211,10 @@ class LTFeatureVisualization:
                         _ = model.model.diffusion_model(img_normalized,
                                                        timesteps=torch.zeros(1, device=device),
                                                        context=None)
-                    except:
+                    except (AttributeError, RuntimeError, TypeError) as e:
                         # Some models need different inputs, try simpler approach
+                        # Log the specific error for debugging
+                        print(f"Primary forward pass failed: {e}, trying alternative approach")
                         _ = model.model.diffusion_model.input_blocks[0](img_normalized)
 
                     # Get activation from our target layer and channel
@@ -379,8 +381,8 @@ class LTActivationAtlas:
         # Parse channel indices
         try:
             channel_indices = [int(c.strip()) for c in channels.split(',')]
-        except:
-            return {"ui": {"html": ("<div class='text-red-600'>Invalid channel format. Use comma-separated integers.</div>",)}}
+        except (ValueError, AttributeError) as e:
+            return {"ui": {"html": (f"<div class='text-red-600'>Invalid channel format. Use comma-separated integers. Error: {str(e)}</div>",)}}
 
         # Setup hook
         hook = ActivationHook()
