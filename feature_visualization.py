@@ -169,10 +169,13 @@ class LTFeatureVisualization:
         # Get model dtype - use the model's current dtype
         model_dtype = next(model.model.diffusion_model.parameters()).dtype
 
-        # Initialize with random noise
-        # Use spectral initialization for better results
-        img = torch.randn(1, 3, image_size, image_size, device=device, dtype=model_dtype) * 0.01
+        # Initialize with random noise in latent space (4 channels for SD/SDXL)
+        # Diffusion models work in latent space, not RGB space
+        # Calculate latent dimensions (1/8 of image size for SD/SDXL VAE)
+        latent_size = image_size // 8
+        img = torch.randn(1, 4, latent_size, latent_size, device=device, dtype=model_dtype) * 0.01
         img.requires_grad = True
+        print(f"[LTFeatureVisualization] Initial latent shape: {img.shape}")
 
         # Setup optimizer
         optimizer = torch.optim.Adam([img], lr=learning_rate)
@@ -214,11 +217,12 @@ class LTFeatureVisualization:
                     img_aug = img
 
                 # Forward pass through model
-                # Note: We need to be careful here as we're working with the diffusion model directly
-                # For now, we'll just pass the image through to get activations
+                # Note: We're working with latent tensors, not RGB images
                 with torch.enable_grad():
-                    # Normalize to typical image range
-                    img_normalized = torch.sigmoid(img_aug).to(dtype=model_dtype)
+                    # Use the latent tensor directly (already in correct format)
+                    # No need for sigmoid - latents are typically in range [-1, 1] or similar
+                    img_normalized = img_aug.to(dtype=model_dtype)
+                    print(f"[LTFeatureVisualization] Forward pass shape: {img_normalized.shape}")
 
                     # Forward pass - this will trigger our hook
                     try:
@@ -240,18 +244,21 @@ class LTFeatureVisualization:
                                     context = context.to(device, dtype=model_dtype)
 
                                     # Handle SDXL dual CLIP context
-                                    if context.shape[-1] == 4096:
+                                    current_dim = context.shape[-1]
+                                    if current_dim == 4096:
                                         # SDXL with concatenated CLIP - use first half
+                                        print(f"[LTFeatureVisualization] Splitting dual CLIP context from 4096 to 2048")
                                         context = context[..., :2048]
 
                         _ = model.model.diffusion_model(img_normalized,
                                                        timesteps=torch.zeros(1, device=device, dtype=torch.long),
                                                        context=context, y=y)
                     except (AttributeError, RuntimeError, TypeError) as e:
-                        # Some models need different inputs, try simpler approach
-                        # Log the specific error for debugging
-                        print(f"Primary forward pass failed: {e}, trying alternative approach")
-                        _ = model.model.diffusion_model.input_blocks[0](img_normalized)
+                        # Primary forward failed - skip this iteration rather than crash
+                        print(f"Forward pass failed at iteration {i}: {e}")
+                        # Still update with zero gradient to maintain stability
+                        optimizer.step()
+                        continue
 
                     # Get activation from our target layer and channel
                     if layer_name not in hook.activations:
@@ -473,13 +480,20 @@ class LTActivationAtlas:
                             except:
                                 expected_context_dim = unet_config.get('context_dim', 2048)
 
+                            print(f"[LTActivationAtlas] Context shape: {context.shape}, Expected dim: {expected_context_dim}")
+
+                            # Handle context dimension mismatch
+                            current_dim = context.shape[-1]
+
                             # For SDXL with dual CLIP, context might be 4096 (2x 2048)
                             # but the model expects 2048 - we need to handle this properly
-                            if context.shape[-1] == 4096 and expected_context_dim == 2048:
+                            if current_dim == 4096:
                                 # This is likely SDXL with concatenated CLIP embeddings
-                                # Use only the first half (usually CLIP-L)
+                                # The model needs only 2048 dims - use the first half (CLIP-L)
+                                print(f"[LTActivationAtlas] Splitting dual CLIP context from 4096 to 2048")
                                 context = context[..., :2048]
-                            elif expected_context_dim is not None and context.shape[-1] != expected_context_dim:
+                                print(f"[LTActivationAtlas] New context shape: {context.shape}")
+                            elif expected_context_dim is not None and current_dim != expected_context_dim:
                                 # Need to adjust context dimension
                                 batch_size = context.shape[0]
                                 seq_len = context.shape[1] if len(context.shape) > 2 else 1
