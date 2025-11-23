@@ -166,8 +166,8 @@ class LTFeatureVisualization:
         import comfy.model_management as mm
         device = mm.get_torch_device()
 
-        # Get model dtype
-        model_dtype = mm.unet_dtype(model_params=model.model.diffusion_model.state_dict(), supported_dtypes=mm.unet_dtypes(device))
+        # Get model dtype - use the model's current dtype
+        model_dtype = next(model.model.diffusion_model.parameters()).dtype
 
         # Initialize with random noise
         # Use spectral initialization for better results
@@ -404,8 +404,8 @@ class LTActivationAtlas:
         import comfy.model_management as mm
         device = mm.get_torch_device()
 
-        # Get model dtype
-        model_dtype = mm.unet_dtype(model_params=model.model.diffusion_model.state_dict(), supported_dtypes=mm.unet_dtypes(device))
+        # Get model dtype - use the model's current dtype
+        model_dtype = next(model.model.diffusion_model.parameters()).dtype
 
         latent_samples = latent["samples"].to(device, dtype=model_dtype)
 
