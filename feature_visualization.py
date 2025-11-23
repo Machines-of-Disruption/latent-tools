@@ -230,9 +230,23 @@ class LTFeatureVisualization:
                                 adm_channels = unet_config.get('adm_in_channels', 2816)
                                 y = torch.zeros((img_normalized.shape[0], adm_channels), device=device, dtype=model_dtype)
 
+                        # Prepare context from conditioning if provided
+                        context = None
+                        if positive is not None:
+                            # Extract the conditioning tensor from the positive conditioning
+                            if isinstance(positive, list) and len(positive) > 0:
+                                context = positive[0][0] if isinstance(positive[0], (list, tuple)) else positive[0]
+                                if hasattr(context, 'to'):
+                                    context = context.to(device, dtype=model_dtype)
+
+                                    # Handle SDXL dual CLIP context
+                                    if context.shape[-1] == 4096:
+                                        # SDXL with concatenated CLIP - use first half
+                                        context = context[..., :2048]
+
                         _ = model.model.diffusion_model(img_normalized,
                                                        timesteps=torch.zeros(1, device=device, dtype=torch.long),
-                                                       context=None, y=y)
+                                                       context=context, y=y)
                     except (AttributeError, RuntimeError, TypeError) as e:
                         # Some models need different inputs, try simpler approach
                         # Log the specific error for debugging
@@ -438,6 +452,52 @@ class LTActivationAtlas:
                     context = positive[0][0] if isinstance(positive[0], (list, tuple)) else positive[0]
                     if hasattr(context, 'to'):
                         context = context.to(device, dtype=model_dtype)
+
+                        # Ensure context has the right dimensions for the model
+                        # Get expected context dimension from model
+                        if hasattr(model.model.model_config, 'unet_config'):
+                            unet_config = model.model.model_config.unet_config
+
+                            # SDXL models use dual clip, so context might be concatenated
+                            # Check the actual expected dimension from the model's cross attention layers
+                            try:
+                                # Try to get the context dimension from the actual model layers
+                                for name, module in model.model.diffusion_model.named_modules():
+                                    if 'attn2' in name and hasattr(module, 'to_k'):
+                                        # Found a cross-attention layer - get its expected input dimension
+                                        expected_context_dim = module.to_k.in_features
+                                        break
+                                else:
+                                    # Fallback to config
+                                    expected_context_dim = unet_config.get('context_dim', 2048)
+                            except:
+                                expected_context_dim = unet_config.get('context_dim', 2048)
+
+                            # For SDXL with dual CLIP, context might be 4096 (2x 2048)
+                            # but the model expects 2048 - we need to handle this properly
+                            if context.shape[-1] == 4096 and expected_context_dim == 2048:
+                                # This is likely SDXL with concatenated CLIP embeddings
+                                # Use only the first half (usually CLIP-L)
+                                context = context[..., :2048]
+                            elif expected_context_dim is not None and context.shape[-1] != expected_context_dim:
+                                # Need to adjust context dimension
+                                batch_size = context.shape[0]
+                                seq_len = context.shape[1] if len(context.shape) > 2 else 1
+
+                                # If context is wrong dimension, try to project it or pad/truncate
+                                if context.shape[-1] < expected_context_dim:
+                                    # Pad with zeros
+                                    padding = torch.zeros(batch_size, seq_len, expected_context_dim - context.shape[-1],
+                                                         device=device, dtype=model_dtype)
+                                    if len(context.shape) == 3:
+                                        context = torch.cat([context, padding], dim=-1)
+                                    else:
+                                        # Handle 2D context
+                                        context = context.unsqueeze(1) if len(context.shape) == 2 else context
+                                        context = torch.cat([context, padding], dim=-1)
+                                else:
+                                    # Truncate to expected dimension
+                                    context = context[..., :expected_context_dim]
 
             # Check if model needs class conditioning (SDXL models)
             y = None
